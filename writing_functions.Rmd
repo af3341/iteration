@@ -1,0 +1,242 @@
+---
+title: "writing_functions"
+author: "Alana Ferris"
+date: "2022-11-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(rvest)
+set.seed(1)
+```
+
+# My first function
+
+## Z-scores!
+
+Let's compute Z-score for a list of numbers "x-vec"
+```{r}
+x_vec = rnorm(25, mean = 5, sd = 3)
+
+(x_vec - mean(x_vec)) / sd(x_vec)
+```
+If I want to repeat this process for lots of samples, I might want to have a function that takes the sample as an argument, computes the vector of Z scores in the body, and returns the result. I define such a function below.
+
+* function(ARGUMENT) then {BODY OF FUNCTION}
+* arument is the input
+* and the process you want to do is the body of the function
+* Typing z again at the bottom of function gives the results
+```{r}
+z_scores = function(x) {
+  
+  z = (x - mean(x)) / sd(x)
+  z
+  
+}
+
+z_scores(x_vec)
+```
+To avoid behavior you don’t want (i.e. to “fail noisily and as soon as possible”) we’ll add some checks on the argument values using conditional statements:
+
+```{r}
+z_scores = function(x) {
+  
+  if (!is.numeric(x)) {
+    stop("Argument x should be numeric")
+  } else if (length(x) == 1) {
+    stop("Z scores cannot be computed for length 1 vectors")
+  }
+  
+  z = mean(x) / sd(x)
+  
+  z
+}
+```
+Basically reads as "if this is true, then do this, and if this is true, then do this"
+ 
+# Multiple Outputs
+
+In some cases it might be better to return the mean and standard deviation instead of the Z scores. A first option is to store each of the values in a named list, and to return that list.
+
+```{r}
+mean_and_sd = function(x) {
+  
+  if (!is.numeric(x)) {
+    stop("Argument x should be numeric")
+  } else if (length(x) == 1) {
+    stop("Cannot be computed for length 1 vectors")
+  }
+  
+  mean_x = mean(x)
+  sd_x = sd(x)
+
+  list(mean = mean_x, 
+       sd = sd_x)
+}
+```
+
+Alternatively, we might store values in a data frame.
+
+```{r}
+mean_and_sd = function(x) {
+  
+  if (!is.numeric(x)) {
+    stop("Argument x should be numeric")
+  } else if (length(x) == 1) {
+    stop("Cannot be computed for length 1 vectors")
+  }
+  
+  mean_x = mean(x)
+  sd_x = sd(x)
+
+  tibble(
+    mean = mean_x, 
+    sd = sd_x
+  )
+}
+```
+
+If you want to return the original sample along with the computed values, a list might make sense; if you plan to run your function a lot and study the results, having a data frame will make it easier to use other tools. 
+
+# Multiple Inputs
+
+```{r}
+sim_data = tibble(
+  x = rnorm(30, mean = 2, sd = 3)
+)
+
+sim_data %>% 
+  summarize(
+    mu_hat = mean(x),
+    sigma_hat = sd(x)
+  )
+```
+You should take a few minutes to examine this code – make a plot of the simulated data to make sure it “makes sense”, take a look at the result of computing the mean and standard deviation, etc. Then:
+
+I’d like to be able to change the sample size and parameters, so those will be my arguments; the code that simulates data and computes the sample mean and SD go in the body; and the return statement should include the estimates.
+
+```{r}
+sim_mean_sd = function(n, mu = 2, sigma = 3) {
+  
+  sim_data = tibble(
+    x = rnorm(n, mean = mu, sd = sigma),
+  )
+  
+  sim_data %>% 
+    summarize(
+      mu_hat = mean(x),
+      sigma_hat = sd(x)
+    )
+}
+```
+
+## Matching
+
+This is also a good time to point out how R handles argument matching. We can use positional matching, meaning the first value supplied is taken to be the first argument, the second value is the second argument, and so on. We do this with tidyverse functions a lot; the first argument is always a dataframe, and we just supply that dataframe in the first position. We also use positional matching when we call mean(x) or sim_mean_sd(30, 5, 1).
+
+Alternatively, we can use named matching, which uses the argument name in the function call. Named matching can be a bit more stable when you’re writing your own functions (in case you decide to change the order of the inputs, for example) but isn’t strictly necessary. Named arguments can be supplied in any order: `sim_mean_sd(n = 30, mu = 5, sd = 1)` is equivalent to `sim_mean_sd(sd = 1, n = 30, mu = 5)`.
+
+# More examples
+
+## Reading data from the web: Amazon 
+
+```{r}
+url = "https://www.amazon.com/product-reviews/B00005JNBQ/ref=cm_cr_arp_d_viewopt_rvwer?ie=UTF8&reviewerType=avp_only_reviews&sortBy=recent&pageNumber=1"
+
+dynamite_html = read_html(url)
+
+review_titles = 
+  dynamite_html %>%
+  html_nodes(".a-text-bold span") %>%
+  html_text()
+
+review_stars = 
+  dynamite_html %>%
+  html_nodes("#cm_cr-review_list .review-rating") %>%
+  html_text() %>%
+  str_extract("^\\d") %>%
+  as.numeric()
+
+review_text = 
+  dynamite_html %>%
+  html_nodes(".review-text-content span") %>%
+  html_text() %>% 
+  str_replace_all("\n", "") %>% 
+  str_trim()
+
+reviews = tibble(
+  title = review_titles,
+  stars = review_stars,
+  text = review_text
+)
+```
+
+Let’s write a quick function to scrape review information for any URL to an Amazon review page. Note that this contains some extra code for manipulating the review_text – our previous code worked for the first page, but broke on a later page. The added lines remove entries in review_text that come from embedded images after extracting text from HTML using CSS tags
+
+Here, the argument that is changing every time is the page number you are looking at. 
+```{r}
+read_page_reviews <- function(url) {
+  
+  html = read_html(url)
+  
+  review_titles = 
+    html %>%
+    html_nodes(".a-text-bold span") %>%
+    html_text()
+  
+  review_stars = 
+    html %>%
+    html_nodes("#cm_cr-review_list .review-rating") %>%
+    html_text() %>%
+    str_extract("^\\d") %>%
+    as.numeric()
+  
+  review_text = 
+    html %>%
+    html_nodes(".review-text-content span") %>%
+    html_text() %>% 
+    str_replace_all("\n", "") %>% 
+    str_trim() %>% 
+    str_subset("The media could not be loaded.", negate = TRUE) %>% 
+    str_subset("^$", negate = TRUE)
+  
+  tibble(
+    title = review_titles,
+    stars = review_stars,
+    text = review_text
+  )
+}
+```
+
+Next we’ll use this to read in reviews from a few pages and combine the results.
+
+```{r}
+url_base = "https://www.amazon.com/product-reviews/B00005JNBQ/ref=cm_cr_arp_d_viewopt_rvwer?ie=UTF8&reviewerType=avp_only_reviews&sortBy=recent&pageNumber="
+vec_urls = str_c(url_base, 1:5)
+
+dynamite_reviews = bind_rows(
+  read_page_reviews(vec_urls[1]),
+  read_page_reviews(vec_urls[2]),
+  read_page_reviews(vec_urls[3]),
+  read_page_reviews(vec_urls[4]),
+  read_page_reviews(vec_urls[5])
+)
+
+dynamite_reviews
+```
+# Scoping and Names
+
+```{r}
+f = function(x) {
+  z = x + y
+  z
+}
+
+x = 1
+y = 2
+
+f(x = y)
+```
+Just remember to ask yourself: have you created the right thing in your function? And did you make sure not to create it outside of your function?
