@@ -1,0 +1,147 @@
+---
+title: "simulations"
+author: "Alana Ferris"
+date: "2022-11-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+set.seed(1)
+```
+
+# Simulations 
+
+The function we made in writing functions:
+
+```{r}
+sim_mean_sd = function(n, mu = 2, sigma = 3) {
+  
+  sim_data = tibble(
+    x = rnorm(n, mean = mu, sd = sigma),
+  )
+  
+  sim_data %>% 
+    summarize(
+      mu_hat = mean(x),
+      sigma_hat = sd(x)
+    )
+}
+```
+
+How did we use this before?
+
+```{r}
+sim_mean_sd(30)
+```
+How can we use this now?
+Let's start with a  `for` loop
+
+```{r}
+output = vector("list", 100)
+
+for (i in 1:100) {
+  output[[i]] = sim_mean_sd(30)
+}
+
+sim_results = bind_rows(output)
+```
+
+Let's use list columns instead
+
+```{r}
+sim_results_df = 
+  expand_grid(
+  sample_size = 30,
+  iteration = 1:100
+) %>% 
+  mutate(
+    estimate_df = map(sample_size, sim_mean_sd)
+  ) %>% 
+  unnest(estimate_df)
+```
+Used `expand_grid` to get columns/dfs that are the same everywhere between iterations. (?) Unnest to then be able to do other stuff to it, like the other stuff we've already learned in this course
+
+```{r}
+sim_results_df %>% 
+  ggplot(aes(x = mu_hat)) + 
+  geom_density()
+```
+
+```{r}
+sim_results_df %>% 
+  pivot_longer(
+    mu_hat:sigma_hat,
+    names_to = "parameter", 
+    values_to = "estimate") %>% 
+  group_by(parameter) %>% 
+  summarize(
+    emp_mean = mean(estimate),
+    emp_sd = sd(estimate)) %>% 
+  knitr::kable(digits = 3)
+```
+## Changing the sample size:
+I need an input list with lots of sample sizes
+
+```{r}
+sim_results_df = 
+  expand_grid(
+    sample_size = c(30, 60, 120, 240),
+    iter = 1:1000
+  ) %>% 
+  mutate(
+    estimate_df = map(sample_size, sim_mean_sd)
+  ) %>% 
+  unnest(estimate_df)
+```
+
+So what can we do with this? A lot 
+Remember violin plots need it to be a factor, not a number i guess 
+
+```{r}
+sim_results_df %>% 
+  mutate(
+    sample_size = str_c("n = ", sample_size),
+    sample_size = fct_inorder(sample_size)) %>% 
+  ggplot(aes(x = sample_size, y = mu_hat, fill = sample_size)) + 
+  geom_violin()
+  
+sim_results_df %>% 
+  pivot_longer(
+    mu_hat:sigma_hat,
+    names_to = "parameter", 
+    values_to = "estimate") %>% 
+  group_by(parameter, sample_size) %>% 
+  summarize(
+    emp_mean = mean(estimate),
+    emp_var = var(estimate)) %>% 
+  knitr::kable(digits = 3)
+```
+And we can see that distribution is wider when n=30 than when n=240. Then we made a clean plot to look at some analysis of that data.
+
+Next:
+
+```{r}
+sim_results_df = 
+  expand_grid(
+    sample_size = c(30, 60, 120, 240),
+    true_sd = c(6, 3),
+    iter = 1:1000
+  ) %>% 
+  mutate(
+    estimate_df = 
+      map2(.x = sample_size, .y = true_sd, ~sim_mean_sd(n = .x, sigma = .y))
+  ) %>% 
+  unnest(estimate_df)
+
+sim_results_df %>% 
+  mutate(
+    sample_size = str_c("n = ", sample_size),
+    sample_size = fct_inorder(sample_size)) %>% 
+  ggplot(aes(x = sample_size, y = mu_hat, fill = sample_size)) + 
+  geom_violin() +
+  facet_grid(. ~ true_sd)
+```
+Have to use .x and .y 
+S
