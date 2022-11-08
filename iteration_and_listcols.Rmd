@@ -1,0 +1,344 @@
+---
+title: "iteration_and_listcols"
+author: "Alana Ferris"
+date: "2022-11-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+set.seed(1)
+
+knitr::opts_chunk$set(
+  fig.width = 6,
+  fig.asp = .6,
+  out.width = "90%"
+)
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+```
+
+# Lists
+
+```{r}
+vec_numeric = 5:8
+vec_char = c("My", "name", "is", "Jeff")
+vec_logical = c(TRUE, TRUE, TRUE, FALSE)
+```
+
+```{r}
+l = list(
+  vec_numeric = 5:8,
+  mat         = matrix(1:8, 2, 4),
+  vec_logical = c(TRUE, FALSE),
+  summary     = summary(rnorm(1000)))
+l
+```
+So basically all you just did was put everything into a list; you jotted it down.
+
+## Accessing List Items
+
+```{r}
+l$vec_numeric
+
+l[[3]]
+
+l[["mat"]]
+```
+He says if code has a dollar sign in it, pump the breaks, you messed up. Use this to pull something out of a list, but don't do it. Can also use double brackets to do this.
+
+## For loops
+
+Let's write a `for` loop to take the mean and sd of four samples from a normal distribution
+
+```{r}
+list_norm =
+  list(
+    a = rnorm(20, 5, 4),
+    b = rnorm(20, -12, 3),
+    c = rnorm(20, 17, .4),
+    d = rnorm(20, 100, 1)
+  )
+```
+
+Here is my function
+
+```{r}
+mean_and_sd = function(x) {
+  if (!is.numeric(x)) {
+    stop("Argument x should be numeric")
+  } else if (length(x) == 1) {
+    stop("Cannot be computed for length 1 vectors")
+  }
+  
+  mean_x = mean(x)
+  sd_x = sd(x)
+
+  tibble(
+    mean = mean_x, 
+       sd = sd_x
+    )
+}
+```
+
+Let's try and make this work.
+
+```{r}
+mean_and_sd(list_norm[[1]])
+```
+Could keep doing this for 2, 3, 4, etc. And right now not saving results. So this can be a problem as sample size increases. So want to keep track of input and output in a concise way. So let's use a `for` loop instead. 
+
+```{r}
+output = vector("list", length = 4)
+
+for (i in 1:4) {
+  output[[i]] = mean_and_sd(list_norm[[i]])
+}
+
+output
+```
+
+`for` defines an index, "i", i starts at 1 and goes to 2,3,4 in this scenario.
+
+## Map
+
+```{r}
+map(list_norm, mean_and_sd)
+```
+
+Advantage here is give it an input list and function without having to define the output in advance or write the `for` loop. Mapping is nice because can just change the function you want to do to your input list. Mean, median, whatever.
+
+So what about other functions?
+
+```{r}
+map(list_norm, median)
+
+map(list_norm, sd)
+```
+Map variants
+
+```{r}
+map_dbl(list_norm, median)
+
+map_df(list_norm, mean_and_sd)
+
+```
+Still haven't saved anything so need to define the output if you want to do that. like
+
+```{r}
+output = map_df(list_norm, mean_and_sd)
+```
+
+# List Columns 
+
+Up to this point, created a list of normal variables.
+
+```{r}
+listcol_df = 
+  tibble(
+    name = c("a", "b", "c", "d"), 
+    norm = list_norm
+  )
+
+listcol_df[["norm"]]
+
+map(listcol_df[["norm"]], mean_and_sd)
+
+output = map(listcol_df[["norm"]], mean_and_sd)
+```
+The only rule for df is need same number of things in each column. And so now have a dataframe and showing how you can do all the same stuff as done before with this. Remember: map functions transform their input by applying a function to each element of a list or atomic vector and returning an object of the same length as the input. 
+
+Now what if we create a new variable that keeps track of the output each time. 
+We've been doing this with mutate, creating a new variable.
+So can we add list cols 
+
+```{r}
+listcol_df %>% 
+  mutate(
+    m_sd = map(norm, mean_and_sd)
+  ) %>% 
+  select(-norm)
+```
+
+# What about something more realistic
+
+```{r}
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728", "USC00519397", "USS0023B17S"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2017-01-01",
+    date_max = "2017-12-31") %>%
+  mutate(
+    name = recode(
+      id, 
+      USW00094728 = "CentralPark_NY", 
+      USC00519397 = "Waikiki_HA",
+      USS0023B17S = "Waterhole_WA"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) %>%
+  select(name, id, everything())
+```
+Could collapse all the dif information for all weather stations into a weather station specific dataframe.
+
+So let's nest within weather stations
+
+```{r}
+weather_nest_df = 
+  weather_df %>% 
+  nest(data = date:tmin)
+```
+
+Nest has taken all 365 days and 4 columns and collapsed down into single dataframe and now we can just put it in a column. 
+So it really is a list column.
+
+```{r}
+weather_nest_df[["data"]]
+```
+Supposed wanted to do a regression of tmax on tmin 
+
+```{r}
+weather_nest_df[["data"]][[1]]
+
+lm(tmax ~ tmin, data = weather_nest_df[["data"]][[1]])
+```
+First line says first taking out this column and then first entry of that list.
+And then ran linear regression on tmax v tmin 
+
+Let's write a short function
+
+```{r}
+weather_lm = function(df) {
+  lm(tmax ~ tmin, data = df)
+}
+
+weather_lm(weather_nest_df[["data"]][[1]])
+
+map(weather_nest_df[["data"]], weather_lm)
+```
+Now can map across this list of dfs the weather_lm function
+
+Can i do this all in a tidy way?
+
+```{r}
+weather_nest_df %>% 
+  mutate(
+    model = map(data, weather_lm)
+  )
+```
+Model column is a new column we are making with linear model results. 
+We nested, mapped a function across list of df, but now we have a quick way to clean up the results.
+
+## Unnesting
+
+```{r}
+weather_nest_df %>% 
+  unnest(data)
+```
+
+## Napolean example, fixing bad stuff
+
+```{r}
+library(rvest)
+```
+
+```{r}
+url = "https://www.amazon.com/product-reviews/B00005JNBQ/ref=cm_cr_arp_d_viewopt_rvwer?ie=UTF8&reviewerType=avp_only_reviews&sortBy=recent&pageNumber=1"
+
+dynamite_html = read_html(url)
+
+review_titles = 
+  dynamite_html %>%
+  html_nodes(".a-text-bold span") %>%
+  html_text()
+
+review_stars = 
+  dynamite_html %>%
+  html_nodes("#cm_cr-review_list .review-rating") %>%
+  html_text() %>%
+  str_extract("^\\d") %>%
+  as.numeric()
+
+review_text = 
+  dynamite_html %>%
+  html_nodes(".review-text-content span") %>%
+  html_text() %>% 
+  str_replace_all("\n", "") %>% 
+  str_trim()
+
+reviews = tibble(
+  title = review_titles,
+  stars = review_stars,
+  text = review_text
+)
+```
+
+What we did last time: 
+```{r}
+url_base = "https://www.amazon.com/product-reviews/B00005JNBQ/ref=cm_cr_arp_d_viewopt_rvwer?ie=UTF8&reviewerType=avp_only_reviews&sortBy=recent&pageNumber="
+
+vec_urls = str_c(url_base, c(1, 2, 3, 4, 5))
+
+read_page_reviews <- function(url) {
+  
+html = read_html(url)
+  
+  review_titles = 
+    html %>%
+    html_nodes(".a-text-bold span") %>%
+    html_text()
+  
+  review_stars = 
+    html %>%
+    html_nodes("#cm_cr-review_list .review-rating") %>%
+    html_text() %>%
+    str_extract("^\\d") %>%
+    as.numeric()
+  
+  review_text = 
+    html %>%
+    html_nodes(".review-text-content span") %>%
+    html_text() %>% 
+    str_replace_all("\n", "") %>% 
+    str_trim() %>% 
+    str_subset("The media could not be loaded.", negate = TRUE) %>% 
+    str_subset("^$", negate = TRUE)
+  
+  tibble(
+    title = review_titles,
+    stars = review_stars,
+    text = review_text
+  )
+}
+
+dynamite_reviews = bind_rows(
+  read_page_reviews(vec_urls[1]),
+  read_page_reviews(vec_urls[2]),
+  read_page_reviews(vec_urls[3]),
+  read_page_reviews(vec_urls[4]),
+  read_page_reviews(vec_urls[5])
+)
+
+dynamite_reviews
+
+map(vec_urls, read_page_reviews)
+
+napolean_reviews =
+  tibble(
+    page = 1:5,
+    page_url = str_c(url_base, page)
+  ) %>% 
+  mutate(
+    reviews = map(page_url, read_page_reviews)
+  )
+
+napolean_reviews %>% 
+  select(-page_url) %>% 
+  unnest(reviews)
+```
